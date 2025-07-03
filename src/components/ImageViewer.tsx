@@ -1,12 +1,20 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { ZoomIn, ZoomOut, RotateCw, Move, Ruler, Square } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCw, Move, Ruler, Square, Wifi, WifiOff, AlertCircle } from 'lucide-react';
+import { apiService, UploadProgress } from '../services/api';
 
 interface ImageViewerProps {
   imageUrl: string;
+  imageFile: File | null;
+  patientData?: {
+    name: string;
+    age: number;
+    gender: string;
+    symptoms: string;
+  };
   onAnalysis: (results: any) => void;
 }
 
-const ImageViewer: React.FC<ImageViewerProps> = ({ imageUrl, onAnalysis }) => {
+const ImageViewer: React.FC<ImageViewerProps> = ({ imageUrl, imageFile, patientData, onAnalysis }) => {
   const [zoom, setZoom] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -14,8 +22,27 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ imageUrl, onAnalysis }) => {
   const [activeTool, setActiveTool] = useState<string | null>(null);
   const [annotations, setAnnotations] = useState<any[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
+  const [apiStatus, setApiStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking');
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   
   const imageRef = useRef<HTMLImageElement>(null);
+  
+  // Check API health on component mount
+  React.useEffect(() => {
+    checkApiHealth();
+  }, []);
+
+  const checkApiHealth = async () => {
+    setApiStatus('checking');
+    try {
+      await apiService.checkHealth();
+      setApiStatus('connected');
+    } catch (error) {
+      setApiStatus('disconnected');
+      console.error('API health check failed:', error);
+    }
+  };
   
   const handleZoomIn = useCallback(() => {
     setZoom(prev => Math.min(prev * 1.2, 5));
@@ -42,24 +69,89 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ imageUrl, onAnalysis }) => {
     setIsDragging(false);
   }, []);
 
-  const runAnalysis = useCallback(() => {
+  const runAnalysis = useCallback(async () => {
+    if (!imageFile) {
+      setAnalysisError('No image file available for analysis');
+      return;
+    }
+
+    if (apiStatus !== 'connected') {
+      setAnalysisError('API service is not available. Please check your connection.');
+      return;
+    }
+
     setIsAnalyzing(true);
+    setAnalysisError(null);
+    setUploadProgress(null);
     
-    // Simulate AI analysis with realistic hemorrhage detection
-    setTimeout(() => {
-      const mockResults = {
-        hemorrhageDetected: Math.random() > 0.3,
-        type: ['Epidural', 'Subdural', 'Subarachnoid', 'Intracerebral', 'Intraventricular'][Math.floor(Math.random() * 5)],
-        confidence: (0.75 + Math.random() * 0.24).toFixed(2),
-        location: ['Frontal lobe', 'Parietal lobe', 'Temporal lobe', 'Occipital lobe', 'Basal ganglia'][Math.floor(Math.random() * 5)],
-        volume: (Math.random() * 50 + 5).toFixed(1),
-        urgency: Math.random() > 0.7 ? 'High' : Math.random() > 0.4 ? 'Medium' : 'Low'
-      };
-      
+    try {
+      const response = await apiService.analyzeDicomImage(
+        {
+          imageFile,
+          patientData
+        },
+        (progress) => {
+          setUploadProgress(progress);
+        }
+      );
+
+      if (response.success) {
+        // Add bounding boxes as annotations if provided
+        if (response.analysis.boundingBoxes) {
+          setAnnotations(response.analysis.boundingBoxes.map(box => ({
+            x: box.x,
+            y: box.y,
+            width: box.width,
+            height: box.height,
+            confidence: box.confidence
+          })));
+        }
+
+        // Convert API response to expected format
+        const analysisResults = {
+          hemorrhageDetected: response.analysis.hemorrhageDetected,
+          type: response.analysis.type,
+          confidence: response.analysis.confidence.toString(),
+          location: response.analysis.location,
+          volume: response.analysis.volume,
+          urgency: response.analysis.urgency,
+          processingTime: response.analysis.processingTime
+        };
+
+        onAnalysis(analysisResults);
+      } else {
+        throw new Error(response.error || 'Analysis failed');
+      }
+    } catch (error) {
+      console.error('Analysis error:', error);
+      setAnalysisError(error instanceof Error ? error.message : 'Analysis failed');
+    } finally {
       setIsAnalyzing(false);
-      onAnalysis(mockResults);
-    }, 3000);
-  }, [onAnalysis]);
+      setUploadProgress(null);
+    }
+  }, [imageFile, patientData, onAnalysis, apiStatus]);
+
+  const getApiStatusIcon = () => {
+    switch (apiStatus) {
+      case 'connected':
+        return <Wifi className="h-4 w-4 text-green-400" />;
+      case 'disconnected':
+        return <WifiOff className="h-4 w-4 text-red-400" />;
+      case 'checking':
+        return <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"></div>;
+    }
+  };
+
+  const getApiStatusText = () => {
+    switch (apiStatus) {
+      case 'connected':
+        return 'API Connected';
+      case 'disconnected':
+        return 'API Disconnected';
+      case 'checking':
+        return 'Checking...';
+    }
+  };
 
   return (
     <div className="bg-slate-800 rounded-xl border-2 border-blue-700/30 overflow-hidden">
@@ -112,11 +204,31 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ imageUrl, onAnalysis }) => {
             </button>
           </div>
           
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-4">
+            {/* API Status */}
+            <div className="flex items-center space-x-2">
+              {getApiStatusIcon()}
+              <span className={`text-xs ${
+                apiStatus === 'connected' ? 'text-green-400' : 
+                apiStatus === 'disconnected' ? 'text-red-400' : 'text-blue-400'
+              }`}>
+                {getApiStatusText()}
+              </span>
+              {apiStatus === 'disconnected' && (
+                <button
+                  onClick={checkApiHealth}
+                  className="text-xs text-blue-400 hover:text-blue-300 underline"
+                >
+                  Retry
+                </button>
+              )}
+            </div>
+
             <span className="text-sm text-slate-400">Zoom: {(zoom * 100).toFixed(0)}%</span>
+            
             <button
               onClick={runAnalysis}
-              disabled={isAnalyzing}
+              disabled={isAnalyzing || !imageFile || apiStatus !== 'connected'}
               className="px-4 py-2 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-lg hover:from-blue-500 hover:to-cyan-500 transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isAnalyzing ? (
@@ -125,11 +237,37 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ imageUrl, onAnalysis }) => {
                   <span>Analyzing...</span>
                 </div>
               ) : (
-                'Analyze for Hemorrhage'
+                'Analyze with AI'
               )}
             </button>
           </div>
         </div>
+
+        {/* Progress Bar */}
+        {uploadProgress && (
+          <div className="mt-3">
+            <div className="flex justify-between text-xs text-slate-400 mb-1">
+              <span>Uploading to AI Service</span>
+              <span>{uploadProgress.percentage}%</span>
+            </div>
+            <div className="w-full bg-slate-700 rounded-full h-2">
+              <div 
+                className="bg-gradient-to-r from-blue-600 to-cyan-600 h-2 rounded-full transition-all duration-300"
+                style={{ width: `${uploadProgress.percentage}%` }}
+              ></div>
+            </div>
+          </div>
+        )}
+
+        {/* Error Display */}
+        {analysisError && (
+          <div className="mt-3 p-3 bg-red-900/30 border border-red-700/50 rounded-lg">
+            <div className="flex items-center space-x-2">
+              <AlertCircle className="h-4 w-4 text-red-400" />
+              <span className="text-red-300 text-sm">{analysisError}</span>
+            </div>
+          </div>
+        )}
       </div>
       
       {/* Image Container */}
@@ -162,11 +300,31 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ imageUrl, onAnalysis }) => {
                 left: annotation.x,
                 top: annotation.y,
                 width: annotation.width,
-                height: annotation.height
+                height: annotation.height,
+                transform: `translate(${position.x}px, ${position.y}px) scale(${zoom})`
               }}
-            />
+            >
+              {annotation.confidence && (
+                <div className="absolute -top-6 left-0 bg-red-600 text-white text-xs px-2 py-1 rounded">
+                  {(annotation.confidence * 100).toFixed(1)}%
+                </div>
+              )}
+            </div>
           ))}
         </div>
+
+        {/* Analysis Status Overlay */}
+        {isAnalyzing && (
+          <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+            <div className="bg-slate-800 p-6 rounded-xl border border-blue-700/30 text-center">
+              <div className="w-12 h-12 border-4 border-blue-400 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <div className="text-white font-medium mb-2">AI Analysis in Progress</div>
+              <div className="text-slate-400 text-sm">
+                {uploadProgress ? `Uploading: ${uploadProgress.percentage}%` : 'Processing DICOM image...'}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
