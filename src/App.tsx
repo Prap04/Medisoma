@@ -30,12 +30,15 @@ interface DiagnosisData {
   location: string;
   volume: string;
   urgency: 'Low' | 'Medium' | 'High';
+  processingTime?: number;
+  rawPrediction?: string;
 }
 
 function App() {
   const [currentView, setCurrentView] = useState<'landing' | 'home' | 'dashboard' | 'reports' | 'contact' | 'about'>('landing');
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [uploadedImage, setUploadedImage] = useState<string | null>(null);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [patientData, setPatientData] = useState<PatientData | null>(null);
   const [diagnosisResults, setDiagnosisResults] = useState<DiagnosisData | null>(null);
 
@@ -53,6 +56,7 @@ function App() {
   const handleLogout = () => {
     setCurrentView('landing');
     setUploadedImage(null);
+    setUploadedFile(null);
     setPatientData(null);
     setDiagnosisResults(null);
   };
@@ -61,8 +65,8 @@ function App() {
     setCurrentView(view as any);
   };
 
-  const handleImageUpload = (file: File) => {
-    const url = URL.createObjectURL(file);
+  const handleImageUpload = (file: File, url: string) => {
+    setUploadedFile(file);
     setUploadedImage(url);
     setDiagnosisResults(null); // Reset results when new image is uploaded
   };
@@ -72,6 +76,7 @@ function App() {
       URL.revokeObjectURL(uploadedImage);
     }
     setUploadedImage(null);
+    setUploadedFile(null);
     setDiagnosisResults(null);
   };
 
@@ -137,6 +142,13 @@ function App() {
                       <h3 className="text-lg font-semibold text-white mb-4">CT Scan Analysis</h3>
                       <ImageViewer
                         imageUrl={uploadedImage}
+                        imageFile={uploadedFile}
+                        patientData={patientData ? {
+                          name: patientData.name,
+                          age: patientData.age,
+                          gender: patientData.gender,
+                          symptoms: patientData.symptoms
+                        } : undefined}
                         onAnalysis={handleAnalysis}
                       />
                     </div>
@@ -148,7 +160,7 @@ function App() {
                         </svg>
                       </div>
                       <h3 className="text-lg font-semibold text-white mb-2">Upload CT Scan to Begin</h3>
-                      <p className="text-slate-400">Upload a CT scan image to start the hemorrhage analysis process</p>
+                      <p className="text-slate-400">Upload a CT scan image or DICOM file to start the hemorrhage analysis process</p>
                     </div>
                   )}
                 </div>

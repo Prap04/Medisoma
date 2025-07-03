@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { ZoomIn, ZoomOut, RotateCw, Move, Ruler, Square, Wifi, WifiOff, AlertCircle } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCw, Move, Ruler, Square, Wifi, WifiOff, AlertCircle, CheckCircle, Clock } from 'lucide-react';
 import { apiService, UploadProgress } from '../services/api';
 
 interface ImageViewerProps {
@@ -25,6 +25,7 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ imageUrl, imageFile, patientD
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
   const [apiStatus, setApiStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking');
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [lastAnalysisTime, setLastAnalysisTime] = useState<number | null>(null);
   
   const imageRef = useRef<HTMLImageElement>(null);
   
@@ -37,7 +38,9 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ imageUrl, imageFile, patientD
     setApiStatus('checking');
     try {
       await apiService.checkHealth();
-      setApiStatus('connected');
+      // Test if prediction endpoint works
+      const canPredict = await apiService.testPrediction();
+      setApiStatus(canPredict ? 'connected' : 'disconnected');
     } catch (error) {
       setApiStatus('disconnected');
       console.error('API health check failed:', error);
@@ -76,7 +79,7 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ imageUrl, imageFile, patientD
     }
 
     if (apiStatus !== 'connected') {
-      setAnalysisError('API service is not available. Please check your connection.');
+      setAnalysisError('FastAPI service is not available. Please ensure the server is running on http://localhost:8000');
       return;
     }
 
@@ -96,6 +99,8 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ imageUrl, imageFile, patientD
       );
 
       if (response.success) {
+        setLastAnalysisTime(response.analysis.processingTime);
+        
         // Add bounding boxes as annotations if provided
         if (response.analysis.boundingBoxes) {
           setAnnotations(response.analysis.boundingBoxes.map(box => ({
@@ -115,7 +120,8 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ imageUrl, imageFile, patientD
           location: response.analysis.location,
           volume: response.analysis.volume,
           urgency: response.analysis.urgency,
-          processingTime: response.analysis.processingTime
+          processingTime: response.analysis.processingTime,
+          rawPrediction: response.analysis.rawPrediction
         };
 
         onAnalysis(analysisResults);
@@ -145,11 +151,11 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ imageUrl, imageFile, patientD
   const getApiStatusText = () => {
     switch (apiStatus) {
       case 'connected':
-        return 'API Connected';
+        return 'FastAPI Connected';
       case 'disconnected':
-        return 'API Disconnected';
+        return 'FastAPI Disconnected';
       case 'checking':
-        return 'Checking...';
+        return 'Checking API...';
     }
   };
 
@@ -224,6 +230,14 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ imageUrl, imageFile, patientD
               )}
             </div>
 
+            {/* Processing Time */}
+            {lastAnalysisTime && (
+              <div className="flex items-center space-x-1 text-xs text-slate-400">
+                <Clock className="h-3 w-3" />
+                <span>{lastAnalysisTime}ms</span>
+              </div>
+            )}
+
             <span className="text-sm text-slate-400">Zoom: {(zoom * 100).toFixed(0)}%</span>
             
             <button
@@ -247,7 +261,7 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ imageUrl, imageFile, patientD
         {uploadProgress && (
           <div className="mt-3">
             <div className="flex justify-between text-xs text-slate-400 mb-1">
-              <span>Uploading to AI Service</span>
+              <span>Uploading to FastAPI Service</span>
               <span>{uploadProgress.percentage}%</span>
             </div>
             <div className="w-full bg-slate-700 rounded-full h-2">
@@ -265,6 +279,24 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ imageUrl, imageFile, patientD
             <div className="flex items-center space-x-2">
               <AlertCircle className="h-4 w-4 text-red-400" />
               <span className="text-red-300 text-sm">{analysisError}</span>
+            </div>
+          </div>
+        )}
+
+        {/* API Connection Instructions */}
+        {apiStatus === 'disconnected' && (
+          <div className="mt-3 p-3 bg-yellow-900/30 border border-yellow-700/50 rounded-lg">
+            <div className="flex items-start space-x-2">
+              <AlertCircle className="h-4 w-4 text-yellow-400 mt-0.5" />
+              <div className="text-yellow-300 text-sm">
+                <div className="font-medium mb-1">FastAPI Server Not Running</div>
+                <div className="text-xs space-y-1">
+                  <div>1. Navigate to your backend directory</div>
+                  <div>2. Install dependencies: <code className="bg-slate-800 px-1 rounded">pip install -r requirements.txt</code></div>
+                  <div>3. Start server: <code className="bg-slate-800 px-1 rounded">uvicorn main:app --reload</code></div>
+                  <div>4. Ensure server is running on http://localhost:8000</div>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -320,7 +352,7 @@ const ImageViewer: React.FC<ImageViewerProps> = ({ imageUrl, imageFile, patientD
               <div className="w-12 h-12 border-4 border-blue-400 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
               <div className="text-white font-medium mb-2">AI Analysis in Progress</div>
               <div className="text-slate-400 text-sm">
-                {uploadProgress ? `Uploading: ${uploadProgress.percentage}%` : 'Processing DICOM image...'}
+                {uploadProgress ? `Uploading: ${uploadProgress.percentage}%` : 'Processing with DenseNet121 model...'}
               </div>
             </div>
           </div>

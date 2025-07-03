@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, CheckCircle, XCircle, Brain, Activity, FileText, Printer } from 'lucide-react';
+import { AlertTriangle, CheckCircle, XCircle, Brain, Activity, FileText, Printer, Clock, Cpu } from 'lucide-react';
 
 interface DiagnosisData {
   hemorrhageDetected: boolean;
@@ -8,6 +8,8 @@ interface DiagnosisData {
   location: string;
   volume: string;
   urgency: 'Low' | 'Medium' | 'High';
+  processingTime?: number;
+  rawPrediction?: string;
 }
 
 interface DiagnosisResultsProps {
@@ -50,7 +52,7 @@ const DiagnosisResults: React.FC<DiagnosisResultsProps> = ({ results, patientNam
           </div>
           <div>
             <h2 className="text-xl font-bold text-white">Analysis Results</h2>
-            <p className="text-sm text-blue-300">AI-Assisted Diagnosis</p>
+            <p className="text-sm text-blue-300">DenseNet121 AI Model</p>
           </div>
         </div>
         
@@ -82,6 +84,36 @@ const DiagnosisResults: React.FC<DiagnosisResultsProps> = ({ results, patientNam
               Confidence: {(parseFloat(results.confidence) * 100).toFixed(1)}%
             </p>
           </div>
+        </div>
+      </div>
+
+      {/* Model Information */}
+      <div className="mb-6 p-4 bg-blue-900/30 border border-blue-700/50 rounded-lg">
+        <div className="flex items-center space-x-2 mb-2">
+          <Cpu className="h-4 w-4 text-blue-400" />
+          <span className="font-medium text-blue-300">AI Model Details</span>
+        </div>
+        <div className="grid grid-cols-2 gap-4 text-sm">
+          <div>
+            <span className="text-blue-200">Model:</span>
+            <div className="text-white font-medium">DenseNet121</div>
+          </div>
+          <div>
+            <span className="text-blue-200">Raw Prediction:</span>
+            <div className="text-white font-medium">{results.rawPrediction || 'N/A'}</div>
+          </div>
+          {results.processingTime && (
+            <>
+              <div>
+                <span className="text-blue-200">Processing Time:</span>
+                <div className="text-white font-medium">{results.processingTime}ms</div>
+              </div>
+              <div>
+                <span className="text-blue-200">Status:</span>
+                <div className="text-green-400 font-medium">Complete</div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
